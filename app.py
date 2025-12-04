@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 # -----------------------------------------------------
 # 0. KONFIGURASI GLOBAL
 # -----------------------------------------------------
-MODEL_VERSION = "v1.0 (2024)"
+MODEL_VERSION = "v1.0 (2025)"
 
 st.set_page_config(
     page_title="Prediksi Tren Harga Saham - Bagus Darmawan",
