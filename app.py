@@ -397,11 +397,15 @@ if page == "Dashboard Prediksi":
             "Pastikan file `model_lstm_stock_trend.keras`, `scaler_stock_trend.pkl`, "
             "dan `model_params.pkl` berada dalam folder yang sama dengan aplikasi."
         )
+
     else:
+        # Tombol mulai analisis
         if st.button("🚀 Mulai Analisis", use_container_width=True):
             with st.spinner("Mengambil data pasar & melakukan prediksi..."):
                 try:
+                    # -------------------------------------------------
                     # 1. Ambil data harga
+                    # -------------------------------------------------
                     df_raw = get_price_data(ticker)
 
                     if df_raw is None or df_raw.empty:
@@ -422,7 +426,8 @@ if page == "Dashboard Prediksi":
 
                     if len(df_raw) <= 60:
                         st.warning(
-                            "Data historis saham tidak cukup untuk melakukan analisis (butuh lebih dari 60 data)."
+                            "Data historis saham tidak cukup untuk melakukan analisis "
+                            "(butuh lebih dari 60 data)."
                         )
                         st.stop()
 
@@ -432,30 +437,40 @@ if page == "Dashboard Prediksi":
 
                     last_date = df_raw.index[-1].strftime("%d %B %Y")
 
+                    # -------------------------------------------------
                     # 2. Tambah indikator teknikal
+                    # -------------------------------------------------
                     df_processed = add_technical_indicators(df_raw)
 
+                    # -------------------------------------------------
                     # 3. Siapkan input untuk model (VERSI AMAN)
+                    # -------------------------------------------------
                     features = params.get("feature_columns", None)
                     look_back = int(params.get("look_back", 30))
 
                     # pastikan features menjadi list biasa
                     if features is None:
                         features = []
+                    elif isinstance(features, (pd.Index, pd.Series)):
+                        features = features.tolist()
                     elif not isinstance(features, (list, tuple)):
+                        # misalnya numpy array, dsb.
                         features = list(features)
 
                     if len(features) == 0:
                         st.error(
-                            "Parameter `feature_columns` tidak ditemukan atau kosong di `model_params.pkl`."
+                            "Parameter `feature_columns` tidak ditemukan "
+                            "atau kosong di `model_params.pkl`."
                         )
                         st.stop()
 
+                    # pilih hanya fitur yang ada di df_processed
                     available_cols = [c for c in features if c in df_processed.columns]
 
                     if len(available_cols) == 0:
                         st.error(
-                            "Tidak ada satupun kolom fitur yang ditemukan di data setelah penambahan indikator.\n"
+                            "Tidak ada satupun kolom fitur yang ditemukan di data "
+                            "setelah penambahan indikator.\n"
                             "Pastikan nama indikator (SMA_10, EMA_10, dll.) sama seperti saat training."
                         )
                         st.stop()
@@ -474,6 +489,7 @@ if page == "Dashboard Prediksi":
                         )
                         st.stop()
 
+                    # ambil window look_back terakhir
                     input_data = df_processed[available_cols].values[-look_back:]
 
                     # Scaling dengan pengecekan error
@@ -489,20 +505,23 @@ if page == "Dashboard Prediksi":
 
                     X_input = input_scaled.reshape(1, look_back, len(available_cols))
 
+                    # -------------------------------------------------
                     # 4. Prediksi
+                    # -------------------------------------------------
                     proba = model.predict(X_input)[0]
                     pred_class = int(np.argmax(proba))
 
                     labels_with_icon = ["DOWNTREND 📉", "SIDEWAYS ➡️", "UPTREND 🚀"]
                     labels_plain = ["Downtrend", "Sideways", "Uptrend"]
+
                     result_text = labels_with_icon[pred_class]
                     result_plain = labels_plain[pred_class]
                     confidence = float(proba[pred_class] * 100)
                     prob_uptrend = float(proba[2] * 100)
 
-                    # ============================
-                    #   METRIC CARDS
-                    # ============================
+                    # -------------------------------------------------
+                    # 5. METRIC CARDS
+                    # -------------------------------------------------
                     st.subheader("📊 Hasil Prediksi")
 
                     col1, col2, col3 = st.columns(3)
@@ -549,15 +568,14 @@ if page == "Dashboard Prediksi":
 
                     st.divider()
 
-                    # ============================
-                    #   GRAFIK HARGA & BOLLINGER
-                    # ============================
+                    # -------------------------------------------------
+                    # 6. GRAFIK HARGA & BOLLINGER
+                    # -------------------------------------------------
                     st.subheader("📈 Grafik Pergerakan Harga & Bollinger Bands")
 
                     plot_data = df_processed.iloc[-100:]
 
                     fig = go.Figure()
-
                     fig.add_trace(
                         go.Scatter(
                             x=plot_data.index,
@@ -567,7 +585,6 @@ if page == "Dashboard Prediksi":
                             line=dict(color="#2962FF", width=2),
                         )
                     )
-
                     fig.add_trace(
                         go.Scatter(
                             x=plot_data.index,
@@ -578,7 +595,6 @@ if page == "Dashboard Prediksi":
                             showlegend=False,
                         )
                     )
-
                     fig.add_trace(
                         go.Scatter(
                             x=plot_data.index,
@@ -599,12 +615,11 @@ if page == "Dashboard Prediksi":
                         hovermode="x unified",
                         margin=dict(l=0, r=0, t=30, b=0),
                     )
-
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # ============================
-                    #   GRAFIK RSI
-                    # ============================
+                    # -------------------------------------------------
+                    # 7. GRAFIK RSI
+                    # -------------------------------------------------
                     st.subheader("📉 Indikator RSI (14)")
 
                     fig_rsi = go.Figure()
@@ -617,7 +632,6 @@ if page == "Dashboard Prediksi":
                         )
                     )
 
-                    # Area normal 30–70
                     fig_rsi.add_hrect(
                         y0=30,
                         y1=70,
@@ -631,12 +645,11 @@ if page == "Dashboard Prediksi":
                         yaxis=dict(range=[0, 100]),
                         margin=dict(l=0, r=0, t=30, b=0),
                     )
-
                     st.plotly_chart(fig_rsi, use_container_width=True)
 
-                    # ============================
-                    #   GRAFIK PROBABILITAS
-                    # ============================
+                    # -------------------------------------------------
+                    # 8. GRAFIK PROBABILITAS
+                    # -------------------------------------------------
                     st.subheader("🧠 Detail Probabilitas Prediksi")
 
                     probs_df = pd.DataFrame(
@@ -668,11 +681,11 @@ if page == "Dashboard Prediksi":
                         yaxis=dict(range=[0, 1], showgrid=False),
                         margin=dict(l=0, r=0, t=30, b=0),
                     )
-
                     st.plotly_chart(fig_bar, use_container_width=True)
 
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat pemrosesan: {e}")
+
 
 # -----------------------------------------------------
 # 9. HALAMAN 2: TENTANG MODEL & CARA PAKAI
