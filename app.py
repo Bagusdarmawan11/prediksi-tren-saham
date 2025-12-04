@@ -407,32 +407,39 @@ if page == "Dashboard Prediksi":
                     # -------------------------------------------------
                     df_raw = get_price_data(ticker)
 
+                    # Cek 1: Data kosong atau None
                     if df_raw is None or df_raw.empty:
                         st.warning(
                             "Data untuk kode saham ini tidak ditemukan di Yahoo Finance."
                         )
                         st.stop()
 
+                    # --- PERBAIKAN DI SINI (PINDAHKAN FLATTEN KE ATAS) ---
+                    # Kita harus meratakan MultiIndex SEBELUM mengecek kolom "Close"
+                    # agar df_raw["Close"] terdeteksi sebagai Series, bukan DataFrame.
+                    if isinstance(df_raw.columns, pd.MultiIndex):
+                        df_raw.columns = df_raw.columns.get_level_values(0)
+                    # -----------------------------------------------------
+
+                    # Cek 2: Kolom Close ada atau tidak
                     if "Close" not in df_raw.columns:
                         st.warning("Kolom 'Close' tidak ditemukan pada data harga.")
                         st.stop()
 
+                    # Cek 3: Data null
                     if df_raw["Close"].isna().all():
                         st.warning(
                             "Data harga penutupan untuk saham ini belum tersedia / tidak lengkap."
                         )
                         st.stop()
 
+                    # Cek 4: Jumlah data cukup
                     if len(df_raw) <= 60:
                         st.warning(
                             "Data historis saham tidak cukup untuk melakukan analisis "
                             "(butuh lebih dari 60 data)."
                         )
                         st.stop()
-
-                    # Flatten MultiIndex kalau ada
-                    if isinstance(df_raw.columns, pd.MultiIndex):
-                        df_raw.columns = df_raw.columns.get_level_values(0)
 
                     last_date = df_raw.index[-1].strftime("%d %B %Y")
 
