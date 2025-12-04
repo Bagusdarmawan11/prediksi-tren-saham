@@ -339,7 +339,7 @@ with st.sidebar:
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Pengaturan hanya relevan untuk Dashboard
+    # Pengaturan
     st.header("⚙️ Pengaturan")
 
     mode = st.radio("Tema Aplikasi", ["Light", "Dark"], horizontal=True)
@@ -362,12 +362,33 @@ with st.sidebar:
         icon="💡",
     )
 
-# =====================================================
+# -----------------------------------------------------
 # 8. HALAMAN 1: DASHBOARD PREDIKSI
-# =====================================================
+# -----------------------------------------------------
 if page == "Dashboard Prediksi":
 
-    # Load model, scaler, dan parameter
+    # Header besar
+    st.markdown(
+        f"""
+        <div class="header-card">
+            <div style="display:flex;align-items:center;gap:16px;">
+                <div style="font-size:40px;">📈</div>
+                <div>
+                    <h1 class="app-title">Prediksi Tren Harga Saham Menggunakan LSTM/GRU</h1>
+                    <p class="app-subtitle">
+                        Analisis prediksi tren untuk saham <b>{ticker}</b> berdasarkan data historis dan indikator teknikal.
+                    </p>
+                    <p style="font-size:11px;color:#9CA3AF;margin-top:6px;">
+                        Model {MODEL_VERSION} &middot; Output berupa klasifikasi <i>Downtrend</i>, <i>Sideways</i>, atau <i>Uptrend</i>.
+                    </p>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Load model
     model, scaler, params = load_resources()
 
     if model is None:
@@ -376,20 +397,17 @@ if page == "Dashboard Prediksi":
             "Pastikan file `model_lstm_stock_trend.keras`, `scaler_stock_trend.pkl`, "
             "dan `model_params.pkl` berada dalam folder yang sama dengan aplikasi."
         )
-
     else:
-        # Tombol untuk memulai analisis
         if st.button("🚀 Mulai Analisis", use_container_width=True):
-
             with st.spinner("Mengambil data pasar & melakukan prediksi..."):
                 try:
-                    # ---------------------------------------------------------
-                    # 1. AMBIL DATA HARGA
-                    # ---------------------------------------------------------
+                    # 1. Ambil data harga
                     df_raw = get_price_data(ticker)
 
                     if df_raw is None or df_raw.empty:
-                        st.warning("Data untuk kode saham ini tidak ditemukan di Yahoo Finance.")
+                        st.warning(
+                            "Data untuk kode saham ini tidak ditemukan di Yahoo Finance."
+                        )
                         st.stop()
 
                     if "Close" not in df_raw.columns:
@@ -397,85 +415,94 @@ if page == "Dashboard Prediksi":
                         st.stop()
 
                     if df_raw["Close"].isna().all():
-                        st.warning("Data harga penutupan belum tersedia / tidak lengkap.")
+                        st.warning(
+                            "Data harga penutupan untuk saham ini belum tersedia / tidak lengkap."
+                        )
                         st.stop()
 
                     if len(df_raw) <= 60:
-                        st.warning("Data historis tidak cukup (minimal > 60 data).")
+                        st.warning(
+                            "Data historis saham tidak cukup untuk melakukan analisis (butuh lebih dari 60 data)."
+                        )
                         st.stop()
 
+                    # Flatten MultiIndex kalau ada
                     if isinstance(df_raw.columns, pd.MultiIndex):
                         df_raw.columns = df_raw.columns.get_level_values(0)
 
                     last_date = df_raw.index[-1].strftime("%d %B %Y")
 
-                    # ---------------------------------------------------------
-                    # 2. TAMBAH INDIKATOR TEKNIKAL
-                    # ---------------------------------------------------------
+                    # 2. Tambah indikator teknikal
                     df_processed = add_technical_indicators(df_raw)
 
-                    # ---------------------------------------------------------
-                    # 3. SIAPKAN INPUT UNTUK MODEL
-                    # ---------------------------------------------------------
+                    # 3. Siapkan input untuk model (VERSI AMAN)
                     features = params.get("feature_columns", None)
                     look_back = int(params.get("look_back", 30))
 
-                    # pastikan features menjadi list
+                    # pastikan features menjadi list biasa
                     if features is None:
                         features = []
                     elif not isinstance(features, (list, tuple)):
                         features = list(features)
 
                     if len(features) == 0:
-                        st.error("Parameter feature_columns tidak ditemukan di model_params.pkl")
+                        st.error(
+                            "Parameter `feature_columns` tidak ditemukan atau kosong di `model_params.pkl`."
+                        )
                         st.stop()
 
                     available_cols = [c for c in features if c in df_processed.columns]
 
                     if len(available_cols) == 0:
                         st.error(
-                            "Tidak ada fitur yang cocok dengan data indikator.\n"
-                            "Pastikan nama kolom fitur sama seperti saat training."
+                            "Tidak ada satupun kolom fitur yang ditemukan di data setelah penambahan indikator.\n"
+                            "Pastikan nama indikator (SMA_10, EMA_10, dll.) sama seperti saat training."
                         )
                         st.stop()
 
+                    if len(available_cols) != len(features):
+                        st.warning(
+                            "Beberapa fitur yang diharapkan model tidak tersedia pada data. "
+                            "Akurasi prediksi mungkin berkurang.\n\n"
+                            f"Fitur yang digunakan saat ini: {available_cols}"
+                        )
+
                     if len(df_processed) < look_back:
-                        st.error("Data setelah indikator tidak cukup untuk look_back.")
+                        st.warning(
+                            "Data setelah penambahan indikator teknikal tidak cukup "
+                            f"untuk window look_back = {look_back}."
+                        )
                         st.stop()
 
                     input_data = df_processed[available_cols].values[-look_back:]
 
+                    # Scaling dengan pengecekan error
                     try:
                         input_scaled = scaler.transform(input_data)
                     except Exception as e:
                         st.error(
-                            "Scaler gagal memproses data.\n"
-                            "Penyebab umum:\n"
-                            "- urutan kolom beda\n"
-                            "- jumlah fitur beda\n\n"
+                            "Terjadi masalah saat menyiapkan fitur untuk model. "
+                            "Pastikan scaler dan fitur sama dengan saat training.\n\n"
                             f"Detail error: {e}"
                         )
                         st.stop()
 
                     X_input = input_scaled.reshape(1, look_back, len(available_cols))
 
-                    # ---------------------------------------------------------
-                    # 4. PREDIKSI
-                    # ---------------------------------------------------------
+                    # 4. Prediksi
                     proba = model.predict(X_input)[0]
                     pred_class = int(np.argmax(proba))
 
                     labels_with_icon = ["DOWNTREND 📉", "SIDEWAYS ➡️", "UPTREND 🚀"]
                     labels_plain = ["Downtrend", "Sideways", "Uptrend"]
-
                     result_text = labels_with_icon[pred_class]
                     result_plain = labels_plain[pred_class]
                     confidence = float(proba[pred_class] * 100)
                     prob_uptrend = float(proba[2] * 100)
 
-                    # ---------------------------------------------------------
-                    # 5. METRIC CARDS
-                    # ---------------------------------------------------------
+                    # ============================
+                    #   METRIC CARDS
+                    # ============================
                     st.subheader("📊 Hasil Prediksi")
 
                     col1, col2, col3 = st.columns(3)
@@ -491,7 +518,9 @@ if page == "Dashboard Prediksi":
                         f"{confidence:.2f}%",
                     ]
 
-                    for col, title, value in zip((col1, col2, col3), metric_titles, metric_values):
+                    for col, title, value in zip(
+                        (col1, col2, col3), metric_titles, metric_values
+                    ):
                         col.markdown(
                             f"""
                             <div class="metric-card">
@@ -504,78 +533,91 @@ if page == "Dashboard Prediksi":
                             unsafe_allow_html=True,
                         )
 
+                    # Ringkasan interpretasi
                     st.markdown(
                         f"""
-                        **Ringkasan Singkat**
+                        **Ringkasan singkat**
 
-                        - Data terakhir: **{last_date}**  
-                        - Tren berdasarkan model: **{result_plain}**  
-                        - Confidence model: **{confidence:.1f}%**  
-                        - Probabilitas Uptrend: **{prob_uptrend:.1f}%**  
+                        - Data terakhir yang digunakan: **{last_date}**  
+                        - Model memperkirakan tren utama saat ini: **{result_plain}**  
+                        - Tingkat keyakinan model terhadap prediksi ini: **{confidence:.1f}%**  
+                        - Probabilitas khusus untuk **Uptrend**: **{prob_uptrend:.1f}%**  
 
-                        > Catatan: Prediksi bersifat estimasi, bukan rekomendasi beli/jual.
+                        > Catatan: hasil ini bersifat estimasi dan bukan rekomendasi beli / jual.
                         """
                     )
 
                     st.divider()
 
-                    # ---------------------------------------------------------
-                    # 6. GRAFIK HARGA + BOLLINGER
-                    # ---------------------------------------------------------
-                    st.subheader("📈 Grafik Harga & Bollinger Bands")
+                    # ============================
+                    #   GRAFIK HARGA & BOLLINGER
+                    # ============================
+                    st.subheader("📈 Grafik Pergerakan Harga & Bollinger Bands")
 
                     plot_data = df_processed.iloc[-100:]
 
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=plot_data.index,
-                        y=plot_data["Close"],
-                        mode="lines",
-                        name="Close Price",
-                        line=dict(color="#2962FF", width=2),
-                    ))
 
-                    fig.add_trace(go.Scatter(
-                        x=plot_data.index,
-                        y=plot_data["BB_Upper"],
-                        mode="lines",
-                        name="BB Upper",
-                        line=dict(width=0),
-                        showlegend=False,
-                    ))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=plot_data.index,
+                            y=plot_data["Close"],
+                            mode="lines",
+                            name="Close Price",
+                            line=dict(color="#2962FF", width=2),
+                        )
+                    )
 
-                    fig.add_trace(go.Scatter(
-                        x=plot_data.index,
-                        y=plot_data["BB_Lower"],
-                        mode="lines",
-                        name="Bollinger Bands",
-                        line=dict(width=0),
-                        fill="tonexty",
-                        fillcolor="rgba(41, 98, 255, 0.1)",
-                    ))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=plot_data.index,
+                            y=plot_data["BB_Upper"],
+                            mode="lines",
+                            name="BB Upper",
+                            line=dict(width=0),
+                            showlegend=False,
+                        )
+                    )
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=plot_data.index,
+                            y=plot_data["BB_Lower"],
+                            mode="lines",
+                            name="Bollinger Bands",
+                            line=dict(width=0),
+                            fill="tonexty",
+                            fillcolor="rgba(41, 98, 255, 0.1)",
+                        )
+                    )
 
                     fig.update_layout(
                         template=chart_template,
                         height=480,
+                        xaxis_title="Tanggal",
+                        yaxis_title="Harga (IDR)",
                         hovermode="x unified",
                         margin=dict(l=0, r=0, t=30, b=0),
                     )
 
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # ---------------------------------------------------------
-                    # 7. GRAFIK RSI
-                    # ---------------------------------------------------------
+                    # ============================
+                    #   GRAFIK RSI
+                    # ============================
                     st.subheader("📉 Indikator RSI (14)")
 
                     fig_rsi = go.Figure()
-                    fig_rsi.add_trace(go.Scatter(
-                        x=plot_data.index,
-                        y=plot_data["RSI_14"],
-                        mode="lines",
-                        name="RSI 14",
-                    ))
+                    fig_rsi.add_trace(
+                        go.Scatter(
+                            x=plot_data.index,
+                            y=plot_data["RSI_14"],
+                            mode="lines",
+                            name="RSI 14",
+                        )
+                    )
 
+                    # Area normal 30–70
                     fig_rsi.add_hrect(
                         y0=30,
                         y1=70,
@@ -592,30 +634,38 @@ if page == "Dashboard Prediksi":
 
                     st.plotly_chart(fig_rsi, use_container_width=True)
 
-                    # ---------------------------------------------------------
-                    # 8. GRAFIK PROBABILITAS
-                    # ---------------------------------------------------------
+                    # ============================
+                    #   GRAFIK PROBABILITAS
+                    # ============================
                     st.subheader("🧠 Detail Probabilitas Prediksi")
 
-                    probs_df = pd.DataFrame({
-                        "Kategori": ["Downtrend", "Sideways", "Uptrend"],
-                        "Probabilitas": proba,
-                    })
+                    probs_df = pd.DataFrame(
+                        {
+                            "Kategori": ["Downtrend", "Sideways", "Uptrend"],
+                            "Probabilitas": proba,
+                        }
+                    )
 
                     colors = ["#FF4B4B", "#808495", "#09AB3B"]
 
-                    fig_bar = go.Figure(go.Bar(
-                        x=probs_df["Kategori"],
-                        y=probs_df["Probabilitas"],
-                        marker_color=colors,
-                        text=(probs_df["Probabilitas"] * 100).map("{:.1f}%".format),
-                        textposition="auto",
-                    ))
+                    fig_bar = go.Figure(
+                        data=[
+                            go.Bar(
+                                x=probs_df["Kategori"],
+                                y=probs_df["Probabilitas"],
+                                marker_color=colors,
+                                text=(probs_df["Probabilitas"] * 100).map(
+                                    "{:.1f}%".format
+                                ),
+                                textposition="auto",
+                            )
+                        ]
+                    )
 
                     fig_bar.update_layout(
                         template=chart_template,
                         height=300,
-                        yaxis=dict(range=[0, 1]),
+                        yaxis=dict(range=[0, 1], showgrid=False),
                         margin=dict(l=0, r=0, t=30, b=0),
                     )
 
@@ -624,9 +674,9 @@ if page == "Dashboard Prediksi":
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat pemrosesan: {e}")
 
-# =====================================================
+# -----------------------------------------------------
 # 9. HALAMAN 2: TENTANG MODEL & CARA PAKAI
-# =====================================================
+# -----------------------------------------------------
 else:
     st.markdown(
         f"""
@@ -636,7 +686,7 @@ else:
                 <div>
                     <h1 class="app-title">Tentang Model & Cara Menggunakan Aplikasi</h1>
                     <p class="app-subtitle">
-                        Penjelasan mengenai arsitektur model, data yang digunakan,
+                        Penjelasan singkat mengenai arsitektur model, data yang digunakan,
                         serta langkah-langkah penggunaan aplikasi.
                     </p>
                 </div>
@@ -647,6 +697,7 @@ else:
     )
 
     st.markdown("### 🧠 Arsitektur Model")
+
     st.markdown(
         f"""
 - Model menggunakan arsitektur **Recurrent Neural Network (RNN)** dengan kombinasi:
