@@ -3,31 +3,22 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
 import pickle
 import plotly.graph_objects as go
 
 # ==========================================
-# 1. KONFIGURASI HALAMAN & SESSION STATE
+# 1. KONFIGURASI HALAMAN
 # ==========================================
 st.set_page_config(
-    page_title="Prediksi Tren Harga Saham - Bagus Darmawan",
+    page_title="Stock Trend AI - Bagus Darmawan",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Inisialisasi Session State untuk Disclaimer & Tema
-if 'disclaimer_accepted' not in st.session_state:
-    st.session_state.disclaimer_accepted = False
-
-if 'theme_mode' not in st.session_state:
-    st.session_state.theme_mode = 'Light'
-
 # ==========================================
-# 2. FUNGSI-FUNGSI UTILITAS
+# 2. FUNGSI LOAD RESOURCES
 # ==========================================
-
 @st.cache_resource
 def load_resources():
     try:
@@ -40,8 +31,12 @@ def load_resources():
     except Exception as e:
         return None, None, None
 
+# ==========================================
+# 3. FUNGSI FEATURE ENGINEERING
+# ==========================================
 def add_technical_indicators(df):
     df = df.copy()
+    # Hitung indikator sama persis seperti saat training
     df['SMA_10'] = df['Close'].rolling(window=10).mean()
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
     df['EMA_10'] = df['Close'].ewm(span=10, adjust=False).mean()
@@ -68,269 +63,158 @@ def add_technical_indicators(df):
     return df
 
 # ==========================================
-# 3. POP-UP DISCLAIMER (DIALOG)
-# ==========================================
-@st.dialog("⚠️ DISCLAIMER (PENAFIAN)")
-def show_disclaimer():
-    st.write("""
-    **Harap dibaca dengan seksama:**
-    
-    1. Aplikasi ini merupakan **proyek akademik** untuk tujuan penelitian dan pembelajaran.
-    2. Prediksi yang dihasilkan oleh AI (Artificial Intelligence) **tidak menjamin akurasi 100%** dan tidak boleh dijadikan satu-satunya landasan pengambilan keputusan investasi.
-    3. Segala kerugian finansial yang timbul akibat penggunaan informasi dari aplikasi ini adalah **tanggung jawab pengguna sepenuhnya**.
-    4. Pasar saham memiliki risiko tinggi. Selalu lakukan riset mandiri (DYOR).
-    """)
-    if st.button("Saya Mengerti & Lanjutkan"):
-        st.session_state.disclaimer_accepted = True
-        st.rerun()
-
-if not st.session_state.disclaimer_accepted:
-    show_disclaimer()
-
-# ==========================================
-# 4. CSS CUSTOM (DARK/LIGHT MODE & STYLING)
-# ==========================================
-
-# Warna berdasarkan Mode
-if st.session_state.theme_mode == 'Dark':
-    bg_color = "#0E1117"
-    text_color = "#FAFAFA"
-    card_bg = "#262730"
-    chart_template = "plotly_dark"
-else:
-    bg_color = "#F0F2F6"
-    text_color = "#31333F"
-    card_bg = "#FFFFFF"
-    chart_template = "plotly_white"
-
-st.markdown(f"""
-<style>
-    .stApp {{
-        background-color: {bg_color};
-        color: {text_color};
-    }}
-    .metric-card {{
-        background-color: {card_bg};
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        text-align: center;
-    }}
-    .footer {{
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        background-color: {card_bg};
-        color: {text_color};
-        text-align: center;
-        padding: 10px;
-        font-size: 12px;
-        border-top: 1px solid #ccc;
-        z-index: 100;
-    }}
-    /* Logo Styling in Sidebar */
-    .sidebar-logo-container {{
-        display: flex;
-        align-items: center;
-        margin-bottom: 20px;
-    }}
-    .sidebar-text {{
-        margin-left: 15px;
-        line-height: 1.2;
-    }}
-    .sidebar-name {{
-        font-weight: bold;
-        font-size: 16px;
-    }}
-    .sidebar-npm {{
-        font-size: 12px;
-        color: gray;
-    }}
-</style>
-""", unsafe_allow_html=True)
-
-# ==========================================
-# 5. SIDEBAR (PROFIL & SETTINGS)
+# 4. SIDEBAR (Profil & Logo)
 # ==========================================
 with st.sidebar:
-    # Logo Ubhara & Profil
-    # Gunakan URL logo Ubhara Jaya (pastikan link valid)
-    logo_url = "https://upload.wikimedia.org/wikipedia/id/b/b4/Logo_ubhara.png" 
-    
-    st.markdown(f"""
-    <div class="sidebar-logo-container">
-        <img src="{logo_url}" width="60">
-        <div class="sidebar-text">
-            <div class="sidebar-name">Bagus Darmawan</div>
-            <div class="sidebar-npm">NPM: 202210715059</div>
-            <div style="font-size: 10px; margin-top:5px;">Universitas Bhayangkara<br>Jakarta Raya</div>
+    # Logo Universitas (Menggunakan HTML agar rapi)
+    st.markdown("""
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/9/98/Logo_Ubhara_Jaya.png" width="60" style="margin-right: 15px;">
+        <div>
+            <h3 style="margin: 0; font-size: 16px;">Bagus Darmawan</h3>
+            <p style="margin: 0; font-size: 12px; color: gray;">NPM: 202210715059</p>
+            <p style="margin: 0; font-size: 10px;">Univ. Bhayangkara Jakarta Raya</p>
         </div>
     </div>
     <hr>
     """, unsafe_allow_html=True)
     
-    st.header("⚙️ Pengaturan")
-    
-    # Dark/Light Mode Toggle
-    mode = st.radio("Tema Aplikasi", ["Light", "Dark"], horizontal=True)
-    if mode != st.session_state.theme_mode:
-        st.session_state.theme_mode = mode
-        st.rerun()
-
-    st.subheader("Parameter Model")
-    ticker = st.text_input("Kode Saham", value="BBCA.JK").upper()
-    
-    st.info("💡 **Tips:** Gunakan kode saham Yahoo Finance (Contoh: BBRI.JK, TLKM.JK, GOTO.JK)")
+    st.header("⚙️ Input Saham")
+    ticker = st.text_input("Kode Ticker", value="BBCA.JK").upper()
+    st.caption("Contoh: BBRI.JK, TLKM.JK, ASII.JK")
 
 # ==========================================
-# 6. MAIN CONTENT
+# 5. HALAMAN UTAMA
 # ==========================================
 
-st.title("📈 Prediksi Tren Harga Saham Menggunakan LSTM dan GRU")
-st.markdown(f"Analisis Pergerakan Saham **{ticker}** Menggunakan LSTM/GRU")
+# --- DISCLAIMER (Gunakan st.warning/expander agar lebih stabil) ---
+with st.expander("⚠️ **DISCLAIMER (PENAFIAN) - Harap Baca Terlebih Dahulu**", expanded=True):
+    st.warning("""
+    1. Aplikasi ini adalah **proyek akademik** untuk penelitian.
+    2. Hasil prediksi AI **tidak menjamin akurasi 100%**.
+    3. Segala keputusan investasi dan risikonya ada di tangan pengguna.
+    """)
 
-# Load Resources
+st.title("📈 Analisis Tren Saham AI")
+st.write(f"Melakukan forecasting tren untuk saham: **{ticker}**")
+
+# Load Model
 model, scaler, params = load_resources()
 
 if model is None:
-    st.error("File Model/Scaler tidak ditemukan. Silakan upload file .keras dan .pkl.")
+    st.error("⚠️ File Model belum terdeteksi. Pastikan file .keras, .pkl ada di GitHub.")
 else:
-    if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
+    # Tombol Prediksi
+    if st.button("Mulai Analisis", type="primary", use_container_width=True):
         
-        with st.spinner('Mengambil data pasar & melakukan prediksi...'):
+        with st.spinner('Sedang memproses data...'):
             try:
-                # 1. Get Data
+                # Ambil Data
                 df_raw = yf.download(ticker, period='1y', progress=False)
                 
                 if len(df_raw) > 60:
-                    # Flatten MultiIndex
+                    # Fix MultiIndex column issue from yfinance
                     if isinstance(df_raw.columns, pd.MultiIndex):
                         df_raw.columns = df_raw.columns.get_level_values(0)
                     
                     # Feature Engineering
                     df_processed = add_technical_indicators(df_raw)
                     
-                    # Prepare Input
+                    # Cek Kelengkapan Fitur
                     features = params.get('feature_columns', [])
                     look_back = params.get('look_back', 30)
                     
-                    # Check columns
                     available_cols = [c for c in features if c in df_processed.columns]
-                    if len(available_cols) != len(features):
-                        st.warning("Fitur data tidak lengkap, akurasi mungkin berkurang.")
                     
+                    # Prepare Data
                     input_data = df_processed[available_cols].values[-look_back:]
                     input_scaled = scaler.transform(input_data)
                     X_input = input_scaled.reshape(1, look_back, len(available_cols))
                     
-                    # Predict
+                    # Prediksi
                     proba = model.predict(X_input)[0]
                     pred_class = np.argmax(proba)
                     
-                    # Results
+                    # Mapping Label
                     labels = ['DOWNTREND 📉', 'SIDEWAYS ➡️', 'UPTREND 🚀']
                     result_text = labels[pred_class]
                     confidence = proba[pred_class] * 100
                     
-                    # --- TAMPILAN METRICS ---
-                    st.markdown("### 📊 Hasil Prediksi")
-                    col1, col2, col3 = st.columns(3)
+                    # --- TAMPILAN HASIL ---
+                    st.markdown("---")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Harga Terakhir", f"Rp {df_raw['Close'].iloc[-1]:,.0f}")
+                    c2.metric("Prediksi AI", result_text)
+                    c3.metric("Confidence", f"{confidence:.2f}%")
                     
-                    # Custom Metric Cards using HTML
-                    cols = [col1, col2, col3]
-                    titles = ["Harga Terakhir", "Prediksi Tren", "Keyakinan (Confidence)"]
-                    values = [
-                        f"Rp {df_raw['Close'].iloc[-1]:,.0f}", 
-                        result_text, 
-                        f"{confidence:.2f}%"
-                    ]
+                    # --- GRAFIK PLOTLY INTERAKTIF ---
+                    st.subheader("📊 Visualisasi Data")
                     
-                    for i, c in enumerate(cols):
-                        c.markdown(f"""
-                        <div class="metric-card">
-                            <div style="font-size:14px; color:gray;">{titles[i]}</div>
-                            <div style="font-size:24px; font-weight:bold; color:{text_color};">{values[i]}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    st.divider()
-
-                    # --- GRAFIK HARGA (PLOTLY) ---
-                    st.subheader("📈 Grafik Pergerakan Harga & Indikator")
-                    
-                    plot_data = df_processed.iloc[-100:]
+                    plot_data = df_processed.iloc[-120:] # Ambil 120 hari terakhir
                     
                     fig = go.Figure()
                     
-                    # Close Price
+                    # Garis Harga
                     fig.add_trace(go.Scatter(
-                        x=plot_data.index, y=plot_data['Close'], 
-                        mode='lines', name='Close Price', 
-                        line=dict(color='#2962FF', width=2)
+                        x=plot_data.index, y=plot_data['Close'],
+                        mode='lines', name='Harga Close',
+                        line=dict(color='#1f77b4', width=2)
                     ))
                     
-                    # Bollinger Bands Area
+                    # Bollinger Bands
                     fig.add_trace(go.Scatter(
-                        x=plot_data.index, y=plot_data['BB_Upper'], 
-                        mode='lines', name='BB Upper', 
-                        line=dict(width=0), showlegend=False
+                        x=plot_data.index, y=plot_data['BB_Upper'],
+                        mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip'
                     ))
                     fig.add_trace(go.Scatter(
-                        x=plot_data.index, y=plot_data['BB_Lower'], 
-                        mode='lines', name='Bollinger Bands', 
-                        line=dict(width=0), fill='tonexty', 
-                        fillcolor='rgba(41, 98, 255, 0.1)'
+                        x=plot_data.index, y=plot_data['BB_Lower'],
+                        mode='lines', name='Bollinger Bands',
+                        fill='tonexty', fillcolor='rgba(173, 216, 230, 0.2)',
+                        line=dict(width=0), hoverinfo='skip'
                     ))
 
                     fig.update_layout(
-                        template=chart_template,
-                        height=500,
-                        xaxis_title="Tanggal",
+                        title=f"Pergerakan Harga {ticker}",
                         yaxis_title="Harga (IDR)",
+                        xaxis_title="Tanggal",
+                        template="plotly_white",
                         hovermode="x unified",
-                        margin=dict(l=0, r=0, t=30, b=0)
+                        height=500
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # --- GRAFIK PROBABILITAS (WARNA DIPERBAIKI) ---
-                    st.subheader("🧠 Detail Probabilitas AI")
-                    
-                    probs_df = pd.DataFrame({
-                        "Kategori": ["Downtrend", "Sideways", "Uptrend"],
-                        "Probabilitas": proba
+                    # Grafik Probabilitas
+                    st.write("### Probabilitas Prediksi")
+                    prob_df = pd.DataFrame({
+                        "Kategori": ["Turun (Down)", "Datar (Side)", "Naik (Up)"],
+                        "Nilai": proba
                     })
                     
-                    # Warna khusus: Merah (Turun), Abu (Datar), Hijau (Naik)
-                    colors = ['#FF4B4B', '#808495', '#09AB3B']
+                    # Warna bar chart: Merah, Abu, Hijau
+                    colors = ['#ff4b4b', '#808495', '#21c354']
                     
                     fig_bar = go.Figure(data=[go.Bar(
-                        x=probs_df['Kategori'],
-                        y=probs_df['Probabilitas'],
+                        x=prob_df['Kategori'],
+                        y=prob_df['Nilai'],
                         marker_color=colors,
-                        text=(probs_df['Probabilitas']*100).map('{:.1f}%'.format),
+                        text=prob_df['Nilai'].apply(lambda x: f"{x*100:.1f}%"),
                         textposition='auto'
                     )])
-                    
-                    fig_bar.update_layout(
-                        template=chart_template,
-                        height=300,
-                        yaxis=dict(range=[0, 1], showgrid=False),
-                        margin=dict(l=0, r=0, t=30, b=0)
-                    )
+                    fig_bar.update_layout(height=300, margin=dict(t=0, b=0, l=0, r=0))
                     st.plotly_chart(fig_bar, use_container_width=True)
-                    
+
                 else:
-                    st.warning("Data historis saham tidak cukup untuk melakukan analisis.")
+                    st.warning("Data tidak cukup untuk melakukan prediksi.")
                     
             except Exception as e:
-                st.error(f"Terjadi kesalahan: {str(e)}")
+                st.error(f"Terjadi kesalahan: {e}")
 
 # ==========================================
-# 7. FOOTER COPYRIGHT
+# 6. FOOTER
 # ==========================================
-st.markdown(f"""
-<div class="footer">
-    Copyright © <b>Bagus Darmawan</b> - NPM: <b>202210715059</b> | Universitas Bhayangkara Jakarta Raya
+st.markdown("""
+<div style="position: fixed; left: 0; bottom: 0; width: 100%; background-color: white; color: black; text-align: center; padding: 10px; border-top: 1px solid #ddd; z-index: 1000;">
+    Copyright © <b>Bagus Darmawan</b> (202210715059) | Universitas Bhayangkara Jakarta Raya
 </div>
+<div style="margin-bottom: 60px;"></div>
 """, unsafe_allow_html=True)
