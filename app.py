@@ -399,7 +399,6 @@ if page == "Dashboard Prediksi":
         )
 
     else:
-        # Tombol mulai analisis
         if st.button("🚀 Mulai Analisis", use_container_width=True):
             with st.spinner("Mengambil data pasar & melakukan prediksi..."):
                 try:
@@ -448,29 +447,25 @@ if page == "Dashboard Prediksi":
                     features = params.get("feature_columns", None)
                     look_back = int(params.get("look_back", 30))
 
-                    # pastikan features menjadi list biasa
+                    # pastikan features jadi list biasa
                     if features is None:
                         features = []
                     elif isinstance(features, (pd.Index, pd.Series)):
                         features = features.tolist()
                     elif not isinstance(features, (list, tuple)):
-                        # misalnya numpy array, dsb.
                         features = list(features)
 
                     if len(features) == 0:
                         st.error(
-                            "Parameter `feature_columns` tidak ditemukan "
-                            "atau kosong di `model_params.pkl`."
+                            "Parameter `feature_columns` tidak ditemukan atau kosong di `model_params.pkl`."
                         )
                         st.stop()
 
-                    # pilih hanya fitur yang ada di df_processed
                     available_cols = [c for c in features if c in df_processed.columns]
 
                     if len(available_cols) == 0:
                         st.error(
-                            "Tidak ada satupun kolom fitur yang ditemukan di data "
-                            "setelah penambahan indikator.\n"
+                            "Tidak ada satupun kolom fitur yang ditemukan di data setelah penambahan indikator.\n"
                             "Pastikan nama indikator (SMA_10, EMA_10, dll.) sama seperti saat training."
                         )
                         st.stop()
@@ -489,7 +484,6 @@ if page == "Dashboard Prediksi":
                         )
                         st.stop()
 
-                    # ambil window look_back terakhir
                     input_data = df_processed[available_cols].values[-look_back:]
 
                     # Scaling dengan pengecekan error
@@ -685,6 +679,7 @@ if page == "Dashboard Prediksi":
 
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat pemrosesan: {e}")
+
 
 
 # -----------------------------------------------------
