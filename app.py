@@ -1,251 +1,329 @@
+# =====================================================
+#   APP STOCK TREND PREDICTION - REFACTORED VERSION
+#   Author: Bagus Darmawan
+#   Framework: Streamlit
+# =====================================================
+
 import streamlit as st
 import numpy as np
 import pandas as pd
+import pickle
 import yfinance as yf
 import tensorflow as tf
-import pickle
+from sklearn.preprocessing import MinMaxScaler
 import plotly.graph_objects as go
-import os
 
-# ==========================================
-# 1. KONFIGURASI HALAMAN
-# ==========================================
+# =====================================================
+# 1. PAGE CONFIGURATION & SESSION STATE
+# =====================================================
 st.set_page_config(
-    page_title="Stock Trend AI - Bagus Darmawan",
+    page_title="Prediksi Tren Harga Saham - Bagus Darmawan",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Session State
-if 'disclaimer_accepted' not in st.session_state:
-    st.session_state.disclaimer_accepted = False
+st.session_state.setdefault("disclaimer_accepted", False)
+st.session_state.setdefault("theme_mode", "Light")
 
-if 'theme_mode' not in st.session_state:
-    st.session_state.theme_mode = 'Light'
+# =====================================================
+# 2. RESOURCE LOADER
+# =====================================================
+@st.cache_resource
+def load_resources():
+    """Load model, scaler, and parameter file."""
+    try:
+        model = tf.keras.models.load_model("model_lstm_stock_trend.keras")
 
-# ==========================================
-# 2. CSS CUSTOM
-# ==========================================
-if st.session_state.theme_mode == 'Dark':
-    bg_color = "#0E1117"
-    text_color = "#FAFAFA"
-    card_bg = "#262730"
-    chart_template = "plotly_dark"
-else:
-    bg_color = "#F0F2F6"
-    text_color = "#31333F"
-    card_bg = "#FFFFFF"
-    chart_template = "plotly_white"
+        with open("scaler_stock_trend.pkl", "rb") as f:
+            scaler = pickle.load(f)
 
+        with open("model_params.pkl", "rb") as f:
+            params = pickle.load(f)
+
+        return model, scaler, params
+
+    except Exception:
+        return None, None, None
+
+
+# =====================================================
+# 3. FEATURE ENGINEERING
+# =====================================================
+def add_technical_indicators(df: pd.DataFrame):
+    """Add SMA, EMA, RSI, MACD, Bollinger Bands, Log Return."""
+    df = df.copy()
+
+    df["SMA_10"] = df["Close"].rolling(10).mean()
+    df["SMA_20"] = df["Close"].rolling(20).mean()
+    df["EMA_10"] = df["Close"].ewm(span=10, adjust=False).mean()
+
+    # RSI
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss
+    df["RSI_14"] = 100 - (100 / (1 + rs))
+
+    # MACD
+    ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["Close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["MACD_Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    df["MACD_Hist"] = df["MACD"] - df["MACD_Signal"]
+
+    # Bollinger Bands
+    mid = df["Close"].rolling(20).mean()
+    std = df["Close"].rolling(20).std()
+    df["BB_Middle"] = mid
+    df["BB_Upper"] = mid + 2 * std
+    df["BB_Lower"] = mid - 2 * std
+
+    # Log return
+    df["Log_Return"] = np.log(df["Close"] / df["Close"].shift(1))
+
+    return df.dropna()
+
+
+# =====================================================
+# 4. DISCLAIMER POP-UP
+# =====================================================
+@st.dialog("⚠️ DISCLAIMER (PENAFIAN)")
+def show_disclaimer():
+    st.write("""
+    **Harap dibaca dengan seksama:**
+
+    1. Aplikasi ini adalah proyek akademik untuk keperluan pembelajaran.
+    2. Prediksi AI tidak menjamin akurasi 100%.
+    3. Semua risiko kerugian akibat keputusan pengguna adalah tanggung jawab pengguna.
+    4. Pasar saham memiliki risiko tinggi — lakukan riset mandiri (DYOR).
+    """)
+
+    if st.button("Saya Mengerti & Lanjutkan"):
+        st.session_state.disclaimer_accepted = True
+        st.rerun()
+
+
+if not st.session_state.disclaimer_accepted:
+    show_disclaimer()
+
+# =====================================================
+# 5. THEME COLORS
+# =====================================================
+THEMES = {
+    "Dark":  {"bg": "#0E1117", "text": "#FAFAFA", "card": "#262730", "chart": "plotly_dark"},
+    "Light": {"bg": "#F0F2F6", "text": "#31333F", "card": "#FFFFFF", "chart": "plotly_white"},
+}
+
+theme = THEMES[st.session_state.theme_mode]
+
+# Inject CSS
 st.markdown(f"""
 <style>
-    .stApp {{ background-color: {bg_color}; color: {text_color}; }}
-    .metric-card {{
-        background-color: {card_bg};
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        text-align: center;
-        border: 1px solid #ddd;
+    .stApp {{
+        background-color: {theme['bg']};
+        color: {theme['text']};
     }}
-    .sidebar-logo-container {{
-        display: flex;
-        align-items: center;
-        margin-bottom: 20px;
-        background-color: {card_bg};
-        padding: 10px;
-        border-radius: 8px;
+    .metric-card {{
+        background-color: {theme['card']};
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }}
+    .footer {{
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        padding: 8px;
+        font-size: 12px;
+        text-align: center;
+        background-color: {theme['card']};
+        border-top: 1px solid #ccc;
     }}
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 3. LOAD RESOURCES
-# ==========================================
-@st.cache_resource
-def load_resources():
-    # Cari file model secara fleksibel
-    model_name = 'model_lstm_stock_trend.keras'
-    scaler_name = 'scaler_stock_trend.pkl'
-    params_name = 'model_params.pkl'
-    
-    # Cek path (Root atau folder main)
-    path = ""
-    if not os.path.exists(model_name):
-        if os.path.exists(os.path.join("main", model_name)):
-            path = "main/"
-        else:
-            return None, None, None # File tidak ditemukan
-
-    try:
-        model = tf.keras.models.load_model(path + model_name)
-        with open(path + scaler_name, 'rb') as f:
-            scaler = pickle.load(f)
-        with open(path + params_name, 'rb') as f:
-            params = pickle.load(f)
-        return model, scaler, params
-    except Exception:
-        return None, None, None
-
-# ==========================================
-# 4. FEATURE ENGINEERING
-# ==========================================
-def add_technical_indicators(df):
-    df = df.copy()
-    # Hitung indikator persis seperti notebook
-    df['SMA_10'] = df['Close'].rolling(window=10).mean()
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['EMA_10'] = df['Close'].ewm(span=10, adjust=False).mean()
-    
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['RSI_14'] = 100 - (100 / (1 + rs))
-    
-    ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
-    ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = ema_12 - ema_26
-    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-    
-    df['BB_Middle'] = df['Close'].rolling(window=20).mean()
-    std_dev = df['Close'].rolling(window=20).std()
-    df['BB_Upper'] = df['BB_Middle'] + (2 * std_dev)
-    df['BB_Lower'] = df['BB_Middle'] - (2 * std_dev)
-    
-    df['Log_Return'] = np.log(df['Close'] / df['Close'].shift(1))
-    df = df.dropna()
-    return df
-
-# ==========================================
-# 5. SIDEBAR
-# ==========================================
+# =====================================================
+# 6. SIDEBAR
+# =====================================================
 with st.sidebar:
-    logo_url = "https://upload.wikimedia.org/wikipedia/commons/9/98/Logo_Ubhara_Jaya.png"
-    
-    st.markdown(f"""
-    <div class="sidebar-logo-container">
-        <img src="{logo_url}" width="50">
+
+    # Profile
+    st.markdown("""
+    <div style="display:flex;align-items:center;margin-bottom:15px;">
+        <img src="https://upload.wikimedia.org/wikipedia/id/b/b4/Logo_ubhara.png" width="60">
         <div style="margin-left:10px;">
-            <div style="font-weight:bold; font-size:14px; color:{text_color};">Bagus Darmawan</div>
-            <div style="font-size:11px; color:gray;">NPM: 202210715059</div>
+            <b>Bagus Darmawan</b><br>
+            NPM: 202210715059<br>
+            <span style="font-size:11px;">Universitas Bhayangkara Jakarta Raya</span>
         </div>
     </div>
+    <hr>
     """, unsafe_allow_html=True)
-    
+
     st.header("⚙️ Pengaturan")
-    theme = st.radio("Tema Aplikasi", ["Light", "Dark"], horizontal=True)
-    if theme != st.session_state.theme_mode:
-        st.session_state.theme_mode = theme
-        st.rerun()
-        
-    st.divider()
-    ticker = st.text_input("Kode Saham", value="BBCA.JK").upper()
+    mode = st.radio("Tema Aplikasi", ["Light", "Dark"], horizontal=True)
 
-# ==========================================
-# 6. DISCLAIMER (VERSI STABIL)
-# ==========================================
-if not st.session_state.disclaimer_accepted:
-    st.warning("⚠️ **DISCLAIMER (PENAFIAN)**")
-    st.info("""
-    1. Aplikasi ini adalah **proyek akademik** Universitas Bhayangkara Jakarta Raya.
-    2. Hasil prediksi AI **tidak menjamin keuntungan** dan bisa salah.
-    3. Gunakan sebagai referensi tambahan, bukan saran investasi mutlak.
-    """)
-    if st.button("Saya Mengerti & Lanjutkan"):
-        st.session_state.disclaimer_accepted = True
+    if mode != st.session_state.theme_mode:
+        st.session_state.theme_mode = mode
         st.rerun()
-    st.stop()
 
-# ==========================================
+    ticker = st.text_input("Kode Saham", "BBCA.JK").upper()
+    st.info("Gunakan kode Yahoo Finance: BBRI.JK, TLKM.JK, GOTO.JK, dll.")
+
+# =====================================================
 # 7. MAIN CONTENT
-# ==========================================
-
-st.title("📈 Prediksi Tren Saham AI")
-st.write(f"Analisis Pergerakan Saham: **{ticker}**")
+# =====================================================
+st.title("📈 Prediksi Tren Harga Saham Menggunakan LSTM/GRU")
+st.write(f"Analisis prediksi tren untuk saham **{ticker}**")
 
 model, scaler, params = load_resources()
 
 if model is None:
-    st.error("❌ Model tidak ditemukan. Pastikan file .keras dan .pkl sudah diupload ke GitHub.")
-else:
-    if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
-        with st.spinner('Sedang memproses...'):
-            try:
-                df_raw = yf.download(ticker, period='2y', progress=False)
-                if len(df_raw) > 60:
-                    # Fix MultiIndex
-                    if isinstance(df_raw.columns, pd.MultiIndex):
-                        df_raw.columns = df_raw.columns.get_level_values(0)
-                    
-                    # Process
-                    df_processed = add_technical_indicators(df_raw)
-                    features = params.get('feature_columns', [])
-                    look_back = params.get('look_back', 30)
-                    available_cols = [c for c in features if c in df_processed.columns]
-                    
-                    # Predict
-                    input_data = df_processed[available_cols].values[-look_back:]
-                    input_scaled = scaler.transform(input_data)
-                    X_input = input_scaled.reshape(1, look_back, len(available_cols))
-                    
-                    proba = model.predict(X_input)[0]
-                    pred_class = np.argmax(proba)
-                    
-                    labels = ['DOWNTREND 📉', 'SIDEWAYS ➡️', 'UPTREND 🚀']
-                    result = labels[pred_class]
-                    confidence = proba[pred_class] * 100
-                    
-                    # Show Metrics
-                    c1, c2, c3 = st.columns(3)
-                    
-                    # Tampilan Metrik HTML
-                    metrics = [
-                        ("Harga Terakhir", f"Rp {df_raw['Close'].iloc[-1]:,.0f}"),
-                        ("Prediksi AI", result),
-                        ("Keyakinan", f"{confidence:.2f}%")
-                    ]
-                    
-                    for i, col in enumerate([c1, c2, c3]):
-                        col.markdown(f"""
-                        <div class="metric-card">
-                            <div style="font-size:12px; color:gray;">{metrics[i][0]}</div>
-                            <div style="font-size:20px; font-weight:bold; color:{text_color};">{metrics[i][1]}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+    st.error("Model atau scaler tidak ditemukan!")
+    st.stop()
 
-                    st.divider()
-                    
-                    # Grafik Harga
-                    st.subheader("📊 Grafik Pergerakan Harga")
-                    plot_data = df_processed.iloc[-100:]
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Close'], mode='lines', name='Close', line=dict(color='#2962FF', width=2)))
-                    fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['BB_Upper'], line=dict(width=0), showlegend=False))
-                    fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['BB_Lower'], fill='tonexty', fillcolor='rgba(41, 98, 255, 0.1)', line=dict(width=0), showlegend=False))
-                    fig.update_layout(template=chart_template, height=450, margin=dict(l=0, r=0, t=30, b=0), xaxis_title="Tanggal", yaxis_title="Harga", hovermode="x unified")
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Grafik Probabilitas
-                    st.subheader("🧠 Probabilitas")
-                    prob_df = pd.DataFrame({"Kategori": ["Turun", "Datar", "Naik"], "Nilai": proba})
-                    fig_bar = go.Figure(data=[go.Bar(x=prob_df['Kategori'], y=prob_df['Nilai'], marker_color=['#FF4B4B', '#808495', '#09AB3B'], text=(prob_df['Nilai']*100).map('{:.1f}%'.format), textposition='auto')])
-                    fig_bar.update_layout(template=chart_template, height=250, margin=dict(l=0, r=0, t=0, b=0), yaxis=dict(showgrid=False))
-                    st.plotly_chart(fig_bar, use_container_width=True)
-                    
-                else:
-                    st.warning("Data tidak cukup.")
-            except Exception as e:
-                st.error(f"Error: {e}")
+# ----------------------------
+# BUTTON: MULAI ANALISIS
+# ----------------------------
+if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
-# ==========================================
+    with st.spinner("Mengambil data & melakukan prediksi..."):
+
+        try:
+            df_raw = yf.download(ticker, period="1y", progress=False)
+
+            if len(df_raw) < 60:
+                st.warning("Data historis tidak cukup.")
+                st.stop()
+
+            # Fix multiindex (jika ada)
+            if isinstance(df_raw.columns, pd.MultiIndex):
+                df_raw.columns = df_raw.columns.droplevel(1)
+
+            df = add_technical_indicators(df_raw)
+
+            # Get model params
+            features = params.get("feature_columns", [])
+            look_back = params.get("look_back", 30)
+
+            available_features = [c for c in features if c in df.columns]
+
+            if len(available_features) < len(features):
+                st.warning("Beberapa fitur tidak tersedia — akurasi mungkin menurun.")
+
+            # Prepare input
+            input_data = df[available_features].values[-look_back:]
+            scaled = scaler.transform(input_data)
+            X = scaled.reshape(1, look_back, len(available_features))
+
+            # Prediction
+            proba = model.predict(X)[0]
+            pred = np.argmax(proba)
+
+            labels = ["DOWNTREND 📉", "SIDEWAYS ➡️", "UPTREND 🚀"]
+            result = labels[pred]
+            confidence = proba[pred] * 100
+
+            # -----------------------
+            # METRIC CARDS
+            # -----------------------
+            st.subheader("📊 Hasil Prediksi")
+
+            col1, col2, col3 = st.columns(3)
+            metric_titles = ["Harga Terakhir", "Prediksi Tren", "Confidence"]
+            metric_values = [
+                f"Rp {df_raw['Close'].iloc[-1]:,.0f}",
+                result,
+                f"{confidence:.2f}%"
+            ]
+
+            for col, title, val in zip([col1, col2, col3], metric_titles, metric_values):
+                col.markdown(
+                    f"""
+                    <div class="metric-card">
+                        <div style="color:gray;font-size:14px;">{title}</div>
+                        <div style="font-size:24px;font-weight:bold;">{val}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            st.divider()
+
+            # -----------------------
+            # PRICE CHART
+            # -----------------------
+            st.subheader("📈 Grafik Harga & Indikator")
+
+            plot_df = df.iloc[-100:]
+            fig = go.Figure()
+
+            fig.add_trace(go.Scatter(
+                x=plot_df.index,
+                y=plot_df["Close"],
+                mode="lines",
+                name="Close Price",
+                line=dict(color="#2962FF", width=2)
+            ))
+
+            fig.add_trace(go.Scatter(
+                x=plot_df.index,
+                y=plot_df["BB_Upper"],
+                line=dict(width=0),
+                showlegend=False
+            ))
+            fig.add_trace(go.Scatter(
+                x=plot_df.index,
+                y=plot_df["BB_Lower"],
+                fill="tonexty",
+                fillcolor="rgba(41,98,255,0.1)",
+                line=dict(width=0),
+                name="Bollinger Bands"
+            ))
+
+            fig.update_layout(
+                template=theme["chart"],
+                height=480,
+                hovermode="x unified",
+                margin=dict(l=0, r=0, t=30, b=0)
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            # -----------------------
+            # BAR CHART PROBABILITY
+            # -----------------------
+            st.subheader("🧠 Probabilitas AI")
+
+            bar_colors = ["#FF4B4B", "#808495", "#09AB3B"]
+            cat = ["Downtrend", "Sideways", "Uptrend"]
+
+            fig2 = go.Figure(go.Bar(
+                x=cat,
+                y=proba,
+                marker_color=bar_colors,
+                text=[f"{p*100:.1f}%" for p in proba],
+                textposition="auto"
+            ))
+
+            fig2.update_layout(
+                template=theme["chart"],
+                height=300,
+                yaxis=dict(range=[0, 1])
+            )
+
+            st.plotly_chart(fig2, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Terjadi kesalahan: {e}")
+
+# =====================================================
 # 8. FOOTER
-# ==========================================
+# =====================================================
 st.markdown("""
-<div style="position: fixed; left: 0; bottom: 0; width: 100%; background-color: white; color: black; text-align: center; padding: 10px; font-size: 12px; border-top: 1px solid #ddd; z-index: 100;">
-    Copyright © <b>Bagus Darmawan</b> (202210715059) | Universitas Bhayangkara Jakarta Raya
+<div class="footer">
+    © <b>Bagus Darmawan</b> - NPM: 202210715059 | Universitas Bhayangkara Jakarta Raya
 </div>
-<div style="margin-bottom: 50px;"></div>
 """, unsafe_allow_html=True)
