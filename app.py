@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 # 1. KONFIGURASI HALAMAN & SESSION STATE
 # ==========================================
 st.set_page_config(
-    page_title="Stock Trend AI - Bagus Darmawan",
+    page_title="Prediksi Tren Harga Saham - Bagus Darmawan",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -187,7 +187,7 @@ with st.sidebar:
 # 6. MAIN CONTENT
 # ==========================================
 
-st.title("📈 AI Stock Trend Prediction")
+st.title("📈 Prediksi Tren Harga Saham Menggunakan LSTM dan GRU")
 st.markdown(f"Analisis Pergerakan Saham **{ticker}** Menggunakan LSTM/GRU")
 
 # Load Resources
