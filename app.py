@@ -156,7 +156,7 @@ st.markdown(f"""
 with st.sidebar:
     # Logo Ubhara & Profil
     # Gunakan URL logo Ubhara Jaya (pastikan link valid)
-    logo_url = "https://upload.wikimedia.org/wikipedia/commons/9/98/Logo_Ubhara_Jaya.png" 
+    logo_url = "https://upload.wikimedia.org/wikipedia/id/b/b4/Logo_ubhara.png" 
     
     st.markdown(f"""
     <div class="sidebar-logo-container">
